@@ -1,19 +1,43 @@
 #include <Wire.h>
 #include <Servo.h>
 #include <SPI.h>
+#include <Stepper.h>
 
 void Version() {
-  Serial.println(F("V0.7"));
+  Serial.println(F("V0.8"));
 }
+
+String debugMessage = "";
+
+const char endChar = '!';
+String inputString = "";
+bool stringComplete = false;
 
 Servo servos[8];
 int servo_pins[] = {0, 0, 0, 0, 0, 0, 0, 0};
-int spiSyncPin = 10;
 boolean connected = false;
+
+const int maxDelayedExecutions = 20;
+int delayTypes[maxDelayedExecutions];
+int delayPins[maxDelayedExecutions];
+long delayExpirations[maxDelayedExecutions];
+String delayCommands[maxDelayedExecutions];
+
+int currentStepperSpeed = 10; // less than 200
+int currentStepperPosition = 0;
+int stepperSteps = 200;
+int stepperPin1 = 23;
+int stepperPin2 = 25;
+int stepperPin3 = 27;
+int stepperPin4 = 29;
+
+Stepper stepper(stepperSteps, stepperPin1, stepperPin2, stepperPin3, stepperPin4);
+
+
 
 int Str2int (String Str_value)
 {
-  char buffer[10]; //max length is three units
+  char buffer[10]; // max length is three units
   Str_value.toCharArray(buffer, 10);
   int int_value = atoi(buffer);
   return int_value;
@@ -30,7 +54,7 @@ void split(String results[], int len, String input, char spChar) {
 
 void DigitalHandler(int mode, String data) {
   int pin = Str2int(data);
-  if (mode <= 0) { // read
+  if (mode <= 0) { //read
     Serial.println(digitalRead(pin));
   } else {
     if (pin < 0) {
@@ -48,15 +72,9 @@ void AnalogHandler(int mode, String data) {
   } else {
     String sdata[2];
     split(sdata, 2, data, '%');
-    int pin = 0;
-    if (String("DAC0").equals(sdata[0]) || String("dac0").equals(sdata[0])) {
-      pin = DAC0;
-    } else if (String("DAC1").equals(sdata[0]) || String("dac1").equals(sdata[0])) {
-      pin = DAC1;
-    } else {
-      pin = Str2int(sdata[0]);
-    }
-    
+
+    int pin = getAnalogPin(sdata[0]);
+
     int pv = Str2int(sdata[1]);
     if (pv > 4095) {
       pv = 4095;
@@ -65,6 +83,19 @@ void AnalogHandler(int mode, String data) {
     }
     analogWrite(pin, pv);
   }
+}
+
+int getAnalogPin(String pinData) {
+  int pin = 0;
+  if (String("DAC0").equals(pinData) || String("dac0").equals(pinData)) {
+    pin = DAC0;
+  } else if (String("DAC1").equals(pinData) || String("dac1").equals(pinData)) {
+    pin = DAC1;
+  } else {
+    pin = Str2int(pinData);
+  }
+
+  return pin;
 }
 
 void ConfigurePinHandler(String data) {
@@ -202,45 +233,159 @@ void SV_write_ms(String data) {
   servos[pos].writeMicroseconds(uS);
 }
 
+void StepperInitialize(String data) {
+  String sdata[2];
+  split(sdata, 2, data, '%');
+  currentStepperSpeed = Str2int(sdata[0]);
+  int pos = Str2int(sdata[1]);
+
+  // If they provide a negative position then do not reset position on init
+  if (pos >= 0) currentStepperPosition = pos;
+  stepper.setSpeed(currentStepperSpeed);
+}
+
+void StepperStep(String data) {
+  int steps = Str2int(data);
+  stepper.step(steps);
+  updateStepperPosition(steps);
+}
+
+void StepperStepGoto(String data) {
+  int pos = Str2int(data);
+
+  int forward = pos - currentStepperPosition;
+  int backward = pos - (currentStepperPosition - stepperSteps);
+
+  int steps = forward;
+  if (abs(forward) > abs(backward)) steps = backward;
+
+  stepper.step(steps);
+  updateStepperPosition(steps);
+}
+
+void updateStepperPosition(int steps) {
+  currentStepperPosition = (currentStepperPosition + steps) % stepperSteps;
+  if (currentStepperPosition < 0) currentStepperPosition += stepperSteps;
+}
+
+void StepperPos() {
+  Serial.println(currentStepperPosition);
+}
+void StepperSpeed(int read, String data) {
+  if (read == 1) Serial.println(currentStepperSpeed);
+  if (read == 0) {
+    int speed = Str2int(data);
+    stepper.setSpeed(speed);
+    currentStepperSpeed = speed;
+  }
+}
+
 void SPIInitialization(String data) {
   SPI.begin();
-  SPI.setDataMode(SPI_MODE3);
+  SPI.setDataMode(SPI_MODE2);
   SPI.setClockDivider(SPI_CLOCK_DIV4); // configuration of clock at 4MHz
 
   String sdata[1];
   split(sdata, 1, data, '%');
   int syncPin = Str2int(sdata[0]);
 
-  spiSyncPin = syncPin;
-  pinMode(spiSyncPin, OUTPUT);
+  pinMode(syncPin, OUTPUT);
 
-  digitalWrite(spiSyncPin, LOW);
+  digitalWrite(syncPin, LOW);
   delay(1);
-  digitalWrite(spiSyncPin, HIGH);
+  digitalWrite(syncPin, HIGH);
 }
 
 void SPIHandler(int mode, String data) {
-  String sdata[2];
-  split(sdata, 2, data, '%');
-  int b1 = Str2int(sdata[0]);
-  int b2 = Str2int(sdata[1]);
+  String sdata[3];
+  split(sdata, 3, data, '%');
+  int pin = Str2int(sdata[0]);
+  int b1 = Str2int(sdata[1]);
+  int b2 = Str2int(sdata[2]);
 
-  digitalWrite(spiSyncPin, LOW);
+  digitalWrite(pin, LOW);
   SPI.transfer(b1);
   SPI.transfer(b2);
-  digitalWrite(spiSyncPin, HIGH);
+  digitalWrite(pin, HIGH);
 }
 
-void SerialParser(void) {
-  char readChar[64];
-  Serial.readBytesUntil(33, readChar, 64);
-  String read_ = String(readChar);
-  //Serial.println(readChar);
+void DelayedHandler(int type, String data) {
+  // Expect pin#delayMS#pin%value%...
+  String sdata[3];
+  split(sdata, 3, data, '#');
+
+  // Analog writes could be on the dac
+  int pin = 0;
+  if (type == 1) {
+    pin = getAnalogPin(sdata[0]);
+  } else {
+    pin = sdata[0].toInt();
+  }
+
+  int delay = sdata[1].toInt();
+  String d = sdata[2];
+
+  CancelDelayed(pin);
+
+  long expires = delay + millis();
+
+  int found = 0;
+  for (int i = 0; i < maxDelayedExecutions; i += 1) {
+    if (found == 0 && delayExpirations[i] == 0) {
+      delayTypes[i] = type;
+      delayPins[i] = pin;
+      delayExpirations[i] = expires;
+      delayCommands[i] = d;
+      found = 1;
+      break;
+    }
+  }
+}
+
+void ExecuteDelayed() {
+  int now = millis();
+  for (int i = 0; i < maxDelayedExecutions; i += 1) {
+    // Is this time to execute
+    if (delayExpirations[i] != 0 && delayExpirations[i] <= now) {
+      String data = delayCommands[i];
+      int type = delayTypes[i];
+
+      if (type == 0) {
+        AnalogHandler(1, data);
+      } else if (type == 1) {
+        DigitalHandler(1, data);
+      } else if (type == 2) {
+        SPIHandler(1, data);
+      }
+
+      // Remove this execution from the list
+      CancelDelayed(delayPins[i]);
+    }
+  }
+}
+
+void CancelDelayed(int pin) {
+  for (int i = 0; i < maxDelayedExecutions; i += 1) {
+    if (delayPins[i] == pin) {
+      delayExpirations[i] = 0;
+    }
+  }
+}
+
+void DebugHandler(String data) {
+  Serial.println(debugMessage);
+  debugMessage = "";
+}
+
+void SerialParser(String read_) {
   int idx1 = read_.indexOf('%');
   int idx2 = read_.indexOf('$');
   // separate command from associated data
   String cmd = read_.substring(1, idx1);
   String data = read_.substring(idx1 + 1, idx2);
+
+  inputString = "";
+  stringComplete = false;
 
   // determine command sent
   if (cmd == "dw") {
@@ -294,17 +439,75 @@ void SerialParser(void) {
   else if (cmd == "spiw") {
     SPIHandler(1, data);
   }
+  else if (cmd == "daw") {
+    // Delayed analog write
+    DelayedHandler(0, data);
+  }
+  else if (cmd == "ddw") {
+    // Delayed digital write
+    DelayedHandler(1, data);
+  }
+  else if (cmd == "dspiw") {
+    DelayedHandler(2, data);
+  }
+  else if (cmd == "stpi") {
+    StepperInitialize(data);
+  }
+  else if (cmd == "stps") {
+    StepperStep(data);
+  }
+  else if (cmd == "stpgo") {
+    StepperStepGoto(data);
+  }
+  else if (cmd == "stpsp") {
+    StepperSpeed(0, data);
+  }
+  else if (cmd == "rstpsp") {
+    StepperSpeed(1, "");
+  }
+  else if (cmd == "rstps") {
+    StepperPos();
+  }
+  else if (cmd == "debug") {
+    DebugHandler(data);
+  }
 }
 
 void setup()  {
   analogWriteResolution(12); // 12 bit for DACs
   Serial.begin(115200);
-  while (!Serial) {
-    ; // wait for serial port to connect. Needed for Leonardo only
-  }
   Serial.println("connected");
+
+  // Stepper setup
+  pinMode(stepperPin1, OUTPUT);
+  pinMode(stepperPin2, OUTPUT);
+  pinMode(stepperPin3, OUTPUT);
+  pinMode(stepperPin4, OUTPUT);
+  digitalWrite(stepperPin1, LOW);
+  digitalWrite(stepperPin2, LOW);
+  digitalWrite(stepperPin3, LOW);
+  digitalWrite(stepperPin4, LOW);
 }
 
 void loop() {
-  SerialParser();
+  ExecuteDelayed();
+}
+
+/*
+  SerialEvent occurs whenever a new data comes in the hardware serial RX. This
+  routine is run between each time loop() runs, so using delay inside loop can
+  delay response. Multiple bytes of data may be available.
+*/
+void serialEvent() {
+  while (Serial.available()) {
+    char inChar = (char)Serial.read();
+    // add it to the inputString:
+    inputString += inChar;
+    // if the incoming character is our end char, set a flag so the main loop can
+    // do something about it:
+    if (inChar == endChar) {
+      stringComplete = true;
+      SerialParser(inputString);
+    }
+  }
 }

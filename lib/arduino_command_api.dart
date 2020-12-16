@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dart_serial_port/dart_serial_port.dart';
@@ -12,7 +11,8 @@ const int DIGITAL_HIGH = 1;
 const int DIGITAL_LOW = 0;
 const int PIN_INPUT = 0;
 const int PIN_OUTPUT = 1;
-const serialTimeoutMs = 1500;
+const serialTimeoutMs = 300;
+const Duration readTimeout = Duration(milliseconds: 300);
 
 /// Build a command string that can be sent to the arduino.
 /// Input:
@@ -21,17 +21,6 @@ const serialTimeoutMs = 1500;
 Uint8List buildCmdString(String cmd, [List<dynamic> args = const []]) {
   var a = args.join('%');
   return encoder.convert('@$cmd%$a\$!');
-}
-
-String readAvailableLine(SerialPort sp) {
-  // while (sp.bytesAvailable == 0) {
-  //   sleep(Duration(milliseconds: 1));
-  // }
-  // var bytes = sp.bytesAvailable;
-  print(sp.bytesAvailable);
-  var buf = sp.read(sp.bytesAvailable, timeout: serialTimeoutMs);
-  var line = decoder.convert(buf);
-  return line.replaceAll('\r\n', '');
 }
 
 void listAvailablePorts() {
@@ -66,10 +55,10 @@ String findPort() {
 }
 
 class Arduino {
-  int timeout = 2000;
   int baudRate;
   late SerialPort sp;
   late SPI spi;
+  late Stepper stepper;
   // late SerialPortReader reader;
   String message = '';
   Completer _serialResponse = Completer();
@@ -85,21 +74,8 @@ class Arduino {
 
     sp = serialPort ?? SerialPort(port);
 
-    // reader = SerialPortReader(sp, timeout: serialTimeoutMs);
-    // reader.stream.map((d) => decoder.convert(d)).listen((data) {
-    //   print('some data $data');
-
-    //   message += data;
-
-    //   if (message.contains('\r\n')) {
-    //     var parts = message.split('\r\n');
-    //     _serialResponse.complete(parts.first);
-
-    //     message = parts.length > 1 ? parts[1] : '';
-    //   }
-    // });
-
     spi = SPI(this);
+    stepper = Stepper(this);
   }
 
   Future<dynamic> start() async {
@@ -120,29 +96,18 @@ class Arduino {
 
     config.dispose();
 
-    sp.read(11, timeout: serialTimeoutMs); // should be 'connected'
+    // sp.read(11, timeout: serialTimeoutMs); // should be 'connected'
     sp.flush();
 
     var version = getSketchVersion();
-    print('ver: $version');
+    print('Arduino Sketch Version: $version');
     if (libraryVersion != version) {
       throw Exception(
           'The Arduino sketch is not the correct version, ${libraryVersion}.');
     }
   }
 
-  String getSketchVersion() {
-    var cmd = buildCmdString('version');
-    sp.flush();
-    sp.write(cmd, timeout: serialTimeoutMs);
-    sp.drain();
-
-    var version = readline();
-    return version;
-  }
-
-  String readline() {
-    var timeout = Duration(milliseconds: 300);
+  String readline({Duration timeout = readTimeout}) {
     var completed = false;
     var line = '';
     while (!completed && DateTime.now().isBefore(DateTime.now().add(timeout))) {
@@ -154,15 +119,26 @@ class Arduino {
     return line.replaceAll('\r\n', '');
   }
 
+  void write(String cmd, [List<dynamic> args = const []]) {
+    var buf = buildCmdString(cmd, args);
+    sp.flush();
+    sp.write(buf, timeout: serialTimeoutMs);
+  }
+
+  String getSketchVersion() {
+    write('version');
+
+    var version = readline();
+    return version;
+  }
+
   /// Sets I/O mode of pin
   /// [mode] should be PIN_INPUT or PIN_OUTPUT
   void pinMode(int pin, int mode) {
     if (mode == PIN_INPUT) {
       pin = -pin;
     }
-    var cmd = buildCmdString('pm', [pin, mode]);
-    sp.flush();
-    sp.write(cmd);
+    write('pm', [pin, mode]);
   }
 
   /// Send digitalWrite command to a pin
@@ -170,39 +146,22 @@ class Arduino {
     if (value == DIGITAL_LOW) {
       pin = -pin;
     }
-    var cmd = buildCmdString('dw', [pin]);
-    sp.flush();
-    sp.write(cmd);
+    write('dw', [pin]);
   }
 
   /// return 1 for HIGH, 0 for LOW
   int digitalRead(int pin) {
-    var cmd = buildCmdString('dr', [pin]);
-    sp.flush();
-    sp.write(cmd, timeout: serialTimeoutMs);
+    write('dr', [pin]);
     return int.parse(readline());
   }
 
   void analogWrite(int pin, int value) {
-    var cmd = buildCmdString('aw', [pin, value]);
-    sp.flush();
-    sp.write(cmd, timeout: serialTimeoutMs);
+    write('aw', [pin, value]);
   }
 
   int analogRead(int pin) {
-    var cmd = buildCmdString('ar', [pin]);
-    sp.flush();
-    sp.write(cmd, timeout: serialTimeoutMs);
-    return _readLastInt();
-  }
-
-  int _readLastInt() {
-    // the analog value can only be up to 4095?
-    var bytes = sp.bytesAvailable;
-    Uint8List buf = sp.read(bytes, timeout: serialTimeoutMs);
-    var line = decoder.convert(buf);
-    var ans = int.parse(line.replaceAll('\r\n', ''));
-    return ans;
+    write('ar', [pin]);
+    return int.parse(readline());
   }
 
   void close() {
@@ -218,26 +177,69 @@ class SPI {
   Arduino board;
   bool spiInitialized = false;
 
+  SPI(this.board);
+
+  void initialize(int syncPin) {
+    board.write('spii', [syncPin]);
+    spiInitialized = true;
+  }
+
+  void transfer(int b1, int b2) {
+    if (!spiInitialized) {
+      throw Exception('SPI must be intialized first.');
+    }
+    board.write('spiw', [b1, b2]);
+  }
+}
+
+/// Stepper motor controlling.
+class Stepper {
+  Arduino board;
+  bool stepperInitialized = false;
   SerialPort get sp {
     return board.sp;
   }
 
-  SPI(this.board);
+  Stepper(this.board);
 
-  void initialize(int syncPin) {
-    var cmd = buildCmdString('spii', [syncPin]);
-    sp.write(cmd);
-    sp.flush();
-    spiInitialized = true;
+  void initialize(int speed, int position) {
+    board.write('stpi', [speed, position]);
+    stepperInitialized = true;
   }
 
-  void write(int b1, int b2) {
-    if (!spiInitialized) {
-      throw Exception('SPI must be intialized first.');
-    }
+  void step(int steps) {
+    board.write('stps', [steps]);
+  }
 
-    var cmd = buildCmdString('spiw', [b1, b2]);
-    sp.write(cmd);
-    sp.flush();
+  void stepTo(int position) {
+    board.write('stpgo', [position]);
+  }
+
+  void setSpeed(int speed) {
+    board.write('stpsp', [speed]);
+  }
+
+  int getSpeed() {
+    board.write('rstpsp', []);
+    return int.parse(board.readline());
+  }
+
+  int getStep() {
+    board.write('rstps', []);
+    return int.parse(board.readline());
   }
 }
+
+// reader = SerialPortReader(sp, timeout: serialTimeoutMs);
+// reader.stream.map((d) => decoder.convert(d)).listen((data) {
+//   print('some data $data');
+
+//   message += data;
+
+//   if (message.contains('\r\n')) {
+//     var parts = message.split('\r\n');
+//     _serialResponse.complete(parts.first);
+
+//     message = parts.length > 1 ? parts[1] : '';
+//   }
+// });
