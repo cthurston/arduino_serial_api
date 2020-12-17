@@ -210,7 +210,7 @@ packages:
       name: path
       url: "https://pub.dartlang.org"
     source: hosted
-    version: "1.7.0"
+    version: "1.8.0-nullsafety.3"
   pedantic:
     dependency: "direct dev"
     description:

@@ -1,5 +1,5 @@
 // @dart=2.9
-import 'package:arduino_command_api/arduino_command_api.dart';
+import 'package:arduino_serial_api/arduino_serial_api.dart';
 import 'package:test/test.dart';
 
 void main() {

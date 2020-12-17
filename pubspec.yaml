@@ -1,12 +1,13 @@
-name: arduino_command_api
-description: Arduino Command API is library for communicating with an Arduino board.
+name: arduino_serial_api
+description: Arduino Serial API is a library for communicating with an Arduino board.
 version: 1.0.0
+repository: https://github.com/cthurston/arduino_serial_api
 
 environment:
   sdk: '>=2.12.0-0 <3.0.0'
 
 dependencies:
- path: ^1.7.0
+ path: ^1.8.0-nullsafety.3
  dart_serial_port: 0.0.4+1
 
 dev_dependencies:
