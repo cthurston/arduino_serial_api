@@ -18,6 +18,7 @@ void main() {
       board = Arduino();
       await board.start();
     });
+
     test('read a value', () {
       var v = board.analogRead(0);
       expect(v, greaterThan(0));
