@@ -154,7 +154,8 @@ class Arduino {
   /// return 1 for HIGH, 0 for LOW
   int digitalRead(int pin) {
     write('dr', [pin]);
-    return int.parse(readline());
+    var v = readline();
+    return v.isNotEmpty ? int.parse(v) : -1;
   }
 
   void analogWrite(dynamic pin, int value) {
@@ -163,8 +164,8 @@ class Arduino {
 
   int analogRead(int pin) {
     write('ar', [pin]);
-    var r = readline();
-    return int.parse(r);
+    var v = readline();
+    return v.isNotEmpty ? int.parse(v) : -1;
   }
 
   void close() {
