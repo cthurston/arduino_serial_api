@@ -4,18 +4,28 @@ import 'package:test/test.dart';
 
 void main() {
   test('buildCmdString ', () {
-    expect(buildCmdString('version'), '@version%\$!');
-    expect(
-        buildCmdString('version', [4, 5.1, 'test']), '@version%4%5.1%test\$!');
-  });
-
-  test('arduino', () async {
-    var port = '/dev/cu.usbmodem141401';
-    var a = Arduino();
-    await a.start();
+    expect(buildCmdString('version'),
+        [64, 118, 101, 114, 115, 105, 111, 110, 37, 36, 33]);
   });
 
   test('find port', () {
     findPort();
+  });
+
+  group('arduino', () {
+    Arduino board;
+    setUpAll(() async {
+      board = Arduino();
+      await board.start();
+    });
+    test('read a value', () {
+      var v = board.analogRead(0);
+      expect(v, greaterThan(0));
+    });
+
+    test('write a value', () {
+      board.analogWrite('DAC0', 200);
+      board.analogWrite(13, 200);
+    });
   });
 }

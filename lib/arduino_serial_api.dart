@@ -61,7 +61,7 @@ class Arduino {
   late Stepper stepper;
   // late SerialPortReader reader;
   String message = '';
-  Completer _serialResponse = Completer();
+  // Completer _serialResponse = Completer();
 
   Arduino({
     this.baudRate = 115200,
@@ -96,7 +96,7 @@ class Arduino {
 
     config.dispose();
 
-    // sp.read(11, timeout: serialTimeoutMs); // should be 'connected'
+    sp.read(11, timeout: 2000); // should be 'connected'
     sp.flush();
 
     var version = getSketchVersion();
@@ -111,9 +111,11 @@ class Arduino {
     var completed = false;
     var line = '';
     while (!completed && DateTime.now().isBefore(DateTime.now().add(timeout))) {
-      var buf = sp.read(sp.bytesAvailable, timeout: serialTimeoutMs);
-      line = decoder.convert(buf);
-      if (line.contains('\r\n')) completed = true;
+      if (sp.bytesAvailable > 0) {
+        var buf = sp.read(sp.bytesAvailable, timeout: serialTimeoutMs);
+        line = decoder.convert(buf);
+        if (line.contains('\r\n')) completed = true;
+      }
     }
 
     return line.replaceAll('\r\n', '');
@@ -155,7 +157,7 @@ class Arduino {
     return int.parse(readline());
   }
 
-  void analogWrite(int pin, int value) {
+  void analogWrite(dynamic pin, int value) {
     write('aw', [pin, value]);
   }
 
