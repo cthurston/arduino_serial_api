@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -11,8 +12,8 @@ const int DIGITAL_HIGH = 1;
 const int DIGITAL_LOW = 0;
 const int PIN_INPUT = 0;
 const int PIN_OUTPUT = 1;
-const serialTimeoutMs = 300;
-const Duration readTimeout = Duration(milliseconds: 300);
+const serialTimeoutMs = 500;
+const Duration readTimeout = Duration(milliseconds: 500);
 
 /// Build a command string that can be sent to the arduino.
 /// Input:
@@ -59,9 +60,7 @@ class Arduino {
   late SerialPort sp;
   late SPI spi;
   late Stepper stepper;
-  // late SerialPortReader reader;
   String message = '';
-  // Completer _serialResponse = Completer();
 
   Arduino({
     this.baudRate = 115200,
@@ -110,10 +109,11 @@ class Arduino {
   String readline({Duration timeout = readTimeout}) {
     var completed = false;
     var line = '';
-    while (!completed && DateTime.now().isBefore(DateTime.now().add(timeout))) {
+    var expires = DateTime.now().add(timeout);
+    while (!completed && DateTime.now().isBefore(expires)) {
       if (sp.bytesAvailable > 0) {
         var buf = sp.read(sp.bytesAvailable, timeout: serialTimeoutMs);
-        line = decoder.convert(buf);
+        line += decoder.convert(buf);
         if (line.contains('\r\n')) completed = true;
       }
     }
@@ -123,8 +123,8 @@ class Arduino {
 
   void write(String cmd, [List<dynamic> args = const []]) {
     var buf = buildCmdString(cmd, args);
-    sp.flush();
     sp.write(buf, timeout: serialTimeoutMs);
+    sp.flush();
   }
 
   String getSketchVersion() {
@@ -163,7 +163,8 @@ class Arduino {
 
   int analogRead(int pin) {
     write('ar', [pin]);
-    return int.parse(readline());
+    var r = readline();
+    return int.parse(r);
   }
 
   void close() {
