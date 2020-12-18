@@ -151,6 +151,22 @@ class Arduino {
     write('dw', [pin]);
   }
 
+  void delayedDigitalWrite(int pin, int value, Duration delay) {
+    /*
+      Sends digitalWrite command that is delayed by milliseconds
+      to digital pin on Arduino
+      -------------
+      inputs:
+          pin : digital pin number
+          val : either "HIGH" or "LOW"
+      */
+    var _pin = pin;
+    if (value == 0) _pin = -pin;
+
+    var delayedCmd = '${pin}#${delay.inMilliseconds}#${_pin}';
+    write('ddw', [delayedCmd]);
+  }
+
   /// return 1 for HIGH, 0 for LOW
   int digitalRead(int pin) {
     write('dr', [pin]);
