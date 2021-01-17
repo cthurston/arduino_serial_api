@@ -43,7 +43,8 @@ String findPort() {
   for (var name in SerialPort.availablePorts) {
     try {
       var sp = SerialPort(name);
-      if (sp.manufacturer != null && sp.manufacturer.contains(arduinoMatcher)) {
+      if (sp.manufacturer != null &&
+          sp.manufacturer!.contains(arduinoMatcher)) {
         port = name;
         sp.dispose();
         break;
@@ -70,7 +71,7 @@ class Arduino {
       port = findPort();
     }
 
-    sp = serialPort ?? SerialPort(port);
+    sp = serialPort ?? SerialPort(port!);
 
     spi = SPI(this);
     stepper = Stepper(this);
@@ -88,7 +89,7 @@ class Arduino {
     config.bits = 8;
     config.stopBits = 1;
     config.parity = SerialPortParity.none;
-    config.flowControl = SerialPortFlowControl.none;
+    // config.flowControl = SerialPortFlowControl.none;
 
     sp.config = config;
 
